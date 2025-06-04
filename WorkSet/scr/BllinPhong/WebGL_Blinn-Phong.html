@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Blinn-Phong - WebGL</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        canvas { display: block; margin: 0 auto; border: 1px solid #ccc; }
+        .ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .ui input { width: 100px; }
+    </style>
+</head>
+<body>
+    <div class="ui">
+        <div>环境光：<input type="range" id="amb" min="0" max="1" step="0.01" value="0.2"></div>
+        <div>漫反射：<input type="range" id="diff" min="0" max="1" step="0.01" value="0.2"></div>
+        <div>高光值：<input type="range" id="spec" min="0" max="1" step="0.01" value="0.3"></div>
+        <div>光泽度：<input type="range" id="shiny" min="1" max="100" step="1" value="100"></div>
+    </div>
+    <canvas id="gl" width="800" height="600"></canvas>
+
+<script id="vs" type="x-shader/x-vertex">
+    attribute vec3 aPosition;
+    attribute vec3 aNormal;
+
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat3 uNormalMatrix;
+
+    varying vec3 vNormal;
+    varying vec3 vPosition;
+
+    void main() {
+        vNormal = uNormalMatrix * aNormal;
+        vec4 worldPos = uModelViewMatrix * vec4(aPosition, 1.0);
+        vPosition = worldPos.xyz;
+        gl_Position = uProjectionMatrix * worldPos;
+    }
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec3 vNormal;
+    varying vec3 vPosition;
+
+    uniform float uAmbient;
+    uniform float uDiffuse;
+    uniform float uSpecular;
+    uniform float uShininess;
+    uniform vec3 uLightPos;
+
+    void main() {
+        vec3 N = normalize(vNormal);
+        vec3 L = normalize(uLightPos - vPosition);
+        vec3 V = normalize(-vPosition);
+        vec3 H = normalize(L + V);
+
+        float diff = max(dot(N, L), 0.0);
+        float spec = pow(max(dot(N, H), 0.0), uShininess);
+
+        vec3 ambient = vec3(uAmbient);
+        vec3 diffuse = vec3(diff * uDiffuse);
+        vec3 specular = vec3(spec * uSpecular);
+
+        gl_FragColor = vec4(ambient + diffuse + specular, 1.0);
+    }
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+<script>
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl');
+
+// ================== Shader setup ==================
+function compileShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+}
+
+const vs = compileShader(gl.VERTEX_SHADER, document.getElementById('vs').textContent);
+const fs = compileShader(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent);
+const program = gl.createProgram();
+gl.attachShader(program, vs);
+gl.attachShader(program, fs);
+gl.linkProgram(program);
+gl.useProgram(program);
+
+// ================== Vertex buffer ==================
+const aPos = gl.getAttribLocation(program, 'aPosition');
+const aNorm = gl.getAttribLocation(program, 'aNormal');
+
+// 正确构造立方体顶点和法线
+const vertices = new Float32Array([
+    // 前面 (z = +1)        法线 (0,0,1)
+    -1, -1, 1, 0, 0, 1,
+     1, -1, 1, 0, 0, 1,
+     1,  1, 1, 0, 0, 1,
+    -1,  1, 1, 0, 0, 1,
+
+    // 右面 (x = +1)        法线 (1,0,0)
+     1, -1, 1, 1, 0, 0,
+     1, -1,-1, 1, 0, 0,
+     1,  1,-1, 1, 0, 0,
+     1,  1, 1, 1, 0, 0,
+
+    // 后面 (z = -1)        法线 (0,0,-1)
+     1, -1,-1, 0, 0,-1,
+    -1, -1,-1, 0, 0,-1,
+    -1,  1,-1, 0, 0,-1,
+     1,  1,-1, 0, 0,-1,
+
+    // 左面 (x = -1)        法线 (-1,0,0)
+    -1, -1,-1,-1, 0, 0,
+    -1, -1, 1,-1, 0, 0,
+    -1,  1, 1,-1, 0, 0,
+    -1,  1,-1,-1, 0, 0,
+
+    // 上面 (y = +1)        法线 (0,1,0)
+    -1, 1, 1, 0, 1, 0,
+     1, 1, 1, 0, 1, 0,
+     1, 1,-1, 0, 1, 0,
+    -1, 1,-1, 0, 1, 0,
+
+    // 下面 (y = -1)        法线 (0,-1,0)
+    -1,-1,-1, 0,-1, 0,
+     1,-1,-1, 0,-1, 0,
+     1,-1, 1, 0,-1, 0,
+    -1,-1, 1, 0,-1, 0,
+]);
+
+const indices = new Uint16Array([
+    0,1,2, 0,2,3,
+    4,5,6, 4,6,7,
+    8,9,10,8,10,11,
+    12,13,14,12,14,15,
+    16,17,18,16,18,19,
+    20,21,22,20,22,23,
+]);
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+const ibo = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 24, 0);
+gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 24, 12);
+gl.enableVertexAttribArray(aPos);
+gl.enableVertexAttribArray(aNorm);
+
+// ================== Draw Loop ==================
+let rot = [0, 0], dragging = false, lx = 0, ly = 0;
+
+canvas.onmousedown = e => {
+    dragging = true;
+    lx = e.clientX;
+    ly = e.clientY;
+};
+
+canvas.onmouseup = () => dragging = false;
+
+canvas.onmousemove = e => {
+    if (dragging) {
+        rot[0] += (e.clientX - lx) * 0.01;
+        rot[1] += (e.clientY - ly) * 0.01;
+        lx = e.clientX;
+        ly = e.clientY;
+        draw();
+    }
+};
+
+function draw() {
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+
+    const mv = mat4.create();
+    mat4.translate(mv, mv, [0, 0, -5]);
+    mat4.rotateY(mv, mv, rot[0]);
+    mat4.rotateX(mv, mv, rot[1]);
+
+    const proj = mat4.create();
+    mat4.perspective(proj, Math.PI/4, canvas.width/canvas.height, 0.1, 100);
+
+    const norm = mat3.normalFromMat4(mat3.create(), mv);
+
+    const uMV = gl.getUniformLocation(program, 'uModelViewMatrix');
+    const uProj = gl.getUniformLocation(program, 'uProjectionMatrix');
+    const uNorm = gl.getUniformLocation(program, 'uNormalMatrix');
+
+    gl.uniformMatrix4fv(uMV, false, mv);
+    gl.uniformMatrix4fv(uProj, false, proj);
+    gl.uniformMatrix3fv(uNorm, false, norm);
+
+    const uAmb = gl.getUniformLocation(program, 'uAmbient');
+    const uDiff = gl.getUniformLocation(program, 'uDiffuse');
+    const uSpec = gl.getUniformLocation(program, 'uSpecular');
+    const uShin = gl.getUniformLocation(program, 'uShininess');
+    const uLight = gl.getUniformLocation(program, 'uLightPos');
+
+    gl.uniform1f(uAmb, +document.getElementById('amb').value);
+    gl.uniform1f(uDiff, +document.getElementById('diff').value);
+    gl.uniform1f(uSpec, +document.getElementById('spec').value);
+    gl.uniform1f(uShin, +document.getElementById('shiny').value);
+    gl.uniform3f(uLight, 3, 3, 3);
+
+    gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+}
+
+// ================== Start ==================
+document.querySelectorAll('input').forEach(i => i.addEventListener('input', draw));
+draw();
+</script>
+</body>
+</html>
